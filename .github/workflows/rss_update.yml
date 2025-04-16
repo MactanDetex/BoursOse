@@ -32,6 +32,7 @@ jobs:
           git config user.email "github-actions@github.com"
           git add ose_immuno.xml || true
           git diff --cached --quiet || git commit -m "Mise à jour automatique du flux RSS"
-          git push
+          git pull --rebase
+          git push || echo "🟡 Aucun changement à pousser"          
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
