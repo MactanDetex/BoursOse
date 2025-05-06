@@ -3,65 +3,73 @@ from bs4 import BeautifulSoup
 from feedgen.feed import FeedGenerator
 from datetime import datetime, timezone
 
-print("🟢 Le script se lance")
-
-URL = "https://www.boursorama.com/bourse/forum/1rPOSE/"
+BASE_URL = "https://www.boursorama.com"
+FORUM_URL = BASE_URL + "/bourse/forum/1rPOSE/"
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15"
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)…"
 }
 
+session = requests.Session()
+# -- si nécessaire, décommente pour t’authentifier :
+# login_payload = {"username":"TON_USER","password":"TON_PWD"}
+# session.post("https://www.boursorama.com/auth/login", data=login_payload, headers=HEADERS)
+
+def fetch_soup(url):
+    r = session.get(url, headers=HEADERS)
+    r.raise_for_status()
+    return BeautifulSoup(r.text, "html.parser")
+
 def scrape_forum():
-    print("🔍 Requête vers le forum...")
-    try:
-        response = requests.get(URL, headers=HEADERS)
-    except Exception as e:
-        print("❌ Erreur pendant la requête :", e)
-        return []
-
-    print(f"↩️ Status code: {response.status_code}")
-    if response.status_code != 200:
-        print("❌ Erreur HTTP :", response.status_code)
-        return []
-
-    soup = BeautifulSoup(response.text, 'html.parser')
-    messages = soup.select('a[href^="/bourse/forum/1rPOSE/detail/"]')
-    print(f"🧪 Nombre de messages trouvés : {len(messages)}")
-
-    posts = []
-    for i, msg in enumerate(messages[:10]):
-        content = msg.get_text(strip=True)
-        href = "https://www.boursorama.com" + msg['href']
-        print(f"📩 Post {i+1} : {content[:50]}...")
-        posts.append({
-            "title": content,
-            "description": content,
+    soup = fetch_soup(FORUM_URL)
+    entries = []
+    # Sélectionne les 20 premiers topics
+    for link in soup.select('a[href^="/bourse/forum/1rPOSE/detail/"]')[:20]:
+        href = BASE_URL + link['href']
+        title = link.get_text(strip=True)
+        parent = link.find_parent('article') or link.find_parent('li')
+        # Récupère time datetime
+        time_el = parent.select_one('time')
+        pub = datetime.fromisoformat(time_el['datetime']) if time_el else datetime.now(timezone.utc)
+        entries.append({
+            "title": title,
             "link": href,
-           "pubDate": datetime.now(timezone.utc),
-            "author": "Forum Boursorama"
+            "description": title,
+            "pubDate": pub,
+            "author": parent.select_one('a.c-forum__author').get_text(strip=True) if parent.select_one('a.c-forum__author') else "Forum Boursorama"
         })
+        # --- COMMENTS ---
+        detail = fetch_soup(href)
+        for c in detail.select('div.c-forum__comment'):
+            txt = c.select_one('p').get_text(strip=True)
+            tm = datetime.fromisoformat(c.select_one('time')['datetime'])
+            auth = c.select_one('a.c-forum__author').get_text(strip=True)
+            entries.append({
+                "title": f"Réponse à «{title}»",
+                "link": href,
+                "description": txt,
+                "pubDate": tm,
+                "author": auth
+            })
+    return entries
 
-    return posts
-
-def generate_rss(posts):
+def generate_rss(items):
     fg = FeedGenerator()
     fg.title("Forum OSE Immuno – Boursorama")
-    fg.link(href=URL)
-    fg.description("Posts récents du forum OSE Immuno")
-
-    for post in posts:
+    fg.link(href=FORUM_URL)
+    fg.description("Tous les posts et commentaires du forum OSE Immuno")
+    for it in items:
         fe = fg.add_entry()
-        fe.title(post["title"])
-        fe.link(href=post["link"])
-        fe.description(post["description"])
-        fe.pubDate(post["pubDate"])
-        fe.author(name=post["author"])
-
+        fe.title(it["title"])
+        fe.link(href=it["link"])
+        fe.description(it["description"])
+        fe.pubDate(it["pubDate"])
+        fe.author(name=it["author"])
     fg.rss_file("ose_immuno.xml")
-    print("✅ Flux RSS généré → ose_immuno.xml")
+    print("✅ RSS généré → ose_immuno.xml")
 
 if __name__ == "__main__":
     posts = scrape_forum()
     if posts:
         generate_rss(posts)
     else:
-        print("⚠️ Aucun post récupéré, RSS non généré.")
+        print("⚠️ Aucun post récupéré.")
