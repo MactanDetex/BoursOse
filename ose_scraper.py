@@ -64,8 +64,8 @@ def generate_rss(items):
         fe.description(it["description"])
         fe.pubDate(it["pubDate"])
         fe.author(name=it["author"])
-    fg.rss_file("ose_immuno.xml")
-    print("✅ RSS généré → ose_immuno.xml")
+    fg.rss_file("rss.xml")
+    print("✅ RSS généré → rss.xml")
 
 if __name__ == "__main__":
     posts = scrape_forum()
